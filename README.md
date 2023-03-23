@@ -1,6 +1,4 @@
-# TriVol
-
-## TriVol: Point Cloud Representation via Triple Volumes
+# TriVol: Point Cloud Representation via Triple Volumes
 
 This is the official implementation of [TriVol: Point Cloud Representation via Triple Volumes]()&nbsp; (CVPR 2022), a Point Cloud Renderer.
 
