@@ -32,6 +32,6 @@ python train.py --scene_dir /path/to/scannet \
   title={TriVol: Point Cloud Representation via Triple Volumes},
   author={Tao Hu, Xiaogang Xu, Ruihang Chu, Jiaya Jia},
   booktitle={Computer Vision and Pattern Recognition},
-  year={2022}
+  year={2023}
 }
 ```
