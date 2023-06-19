@@ -73,12 +73,12 @@ class ShapeNetDataset(Dataset):
         if self.phase == 'train':
             scene_dirs = glob.glob(os.path.join(scene_dir, '*'))
             scene_dirs = sorted(scene_dirs)
-            del scene_dirs[::9]
+            del scene_dirs[::10]
             self.scene_dirs = scene_dirs
         elif self.phase == 'val':
             scene_dirs = glob.glob(os.path.join(scene_dir, '*'))
             scene_dirs = sorted(scene_dirs)
-            self.scene_dirs = scene_dirs[::9]
+            self.scene_dirs = scene_dirs[::10]
         else:
             # self.phase not support error and return 
             raise NotImplementedError    
