@@ -1,6 +1,6 @@
 # TriVol: Point Cloud Rendering via Triple Volumes 
 
-This is the source code of [TriVol: Point Cloud Rendering via Triple Volumes" (CVPR-2023)](https://openaccess.thecvf.com/content/CVPR2023/papers/Hu_TriVol_Point_Cloud_Rendering_via_Triple_Volumes_CVPR_2023_paper.pdf).
+This is the source code of ["TriVol: Point Cloud Rendering via Triple Volumes" (CVPR-2023)](https://openaccess.thecvf.com/content/CVPR2023/papers/Hu_TriVol_Point_Cloud_Rendering_via_Triple_Volumes_CVPR_2023_paper.pdf).
 <p float="left">
 <img src="docs/trivol.png" width="700"/> 
 </p>
