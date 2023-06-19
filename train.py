@@ -299,7 +299,6 @@ class TriVolModule(LightningModule):
         return loss
     
     def validation_step(self, batch, batch_idx):
-        torch.cuda.empty_cache()
         rgbs_prd, rgbs_gt, depths_prd, img_path = self(batch, is_training=False, batch_idx=batch_idx)
 
         # save image
