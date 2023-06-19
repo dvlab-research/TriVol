@@ -172,10 +172,10 @@ class ShapeNetDataset(Dataset):
         points = torch.FloatTensor(np.array(pcd_color.points, dtype=np.float32)) 
         features = torch.FloatTensor(np.array(pcd_color.colors, dtype=np.float32)) 
 
-        # random index to sample points
-        idx = torch.randperm(points.shape[0])[:10000]
-        points = points[idx]
-        features = features[idx]
+        # # random index to sample points
+        # idx = torch.randperm(points.shape[0])[:10000]
+        # points = points[idx]
+        # features = features[idx]
 
         aa = points.min(0)[0][None]
         bb = points.max(0)[0][None]  
