@@ -61,7 +61,7 @@ $ conda env create -f environment.yml
 
 * example results
     <p float="left">
-    <img src="docs/samples.png" width="700"/> 
+    <img src="docs/samples.jpg" width="600"/> 
     </p>
 
 ## Contact
