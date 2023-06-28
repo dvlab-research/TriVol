@@ -217,7 +217,7 @@ class TriVolNeRFRadianceField(nn.Module):
         self.posi_encoder = SinusoidalEncoder(3, 0, 3, True)
         self.view_encoder = SinusoidalEncoder(3, 0, 2, True)
         self.mlp = NerfMLP(
-            input_dim=self.posi_encoder.latent_dim + feat_dim,
+            input_dim=self.posi_encoder.latent_dim + feat_dim*3,
             condition_dim=self.view_encoder.latent_dim,
             net_depth=net_depth,
             net_width=net_width,

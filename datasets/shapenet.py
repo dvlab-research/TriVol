@@ -63,10 +63,9 @@ def compute_extrinsic_matrix(
     return RT
 
 class ShapeNetDataset(Dataset):
-    def __init__(self, phase, scene_dir, voxel_size, coarse_scale, img_wh=[256, 256]):
+    def __init__(self, phase, scene_dir, img_wh=[256, 256]):
         self.CACHE = {}
         self.phase = phase  # do something for a real dataset.
-        self.voxel_size = voxel_size  # in meter
         self.scene_dir = scene_dir
 
 
@@ -89,14 +88,9 @@ class ShapeNetDataset(Dataset):
         # elif self.phase == 'demo':
         #     scene_dirs = glob.glob(os.path.join(scene_dir, '*.json'))
         #     self.scene_dirs = scene_dirs * 200
-
-        H = img_wh[1]
-        W = img_wh[0]
-        upscale = 1
-        self.H = H // upscale
-        self.W = W // upscale
-
-        self.coarse_scale = coarse_scale
+        
+        self.W = img_wh[0]
+        self.H = img_wh[1]
 
         if self.phase == 'demo':
             self.num_frames = 36
@@ -125,11 +119,7 @@ class ShapeNetDataset(Dataset):
         img_ori = Image.open(image_path)
         img_bg = Image.new("RGB", img_ori.size, (255, 255, 255))
         img_bg.paste(img_ori, mask=img_ori.split()[3]) # 3 is the alpha channel
-
-        W_ori, H_ori = img_bg.size
-        imgs = img_bg.resize((self.W, self.H), Image.LANCZOS)      
-        imgs = torchvision.transforms.ToTensor()(imgs) # (3, H, W)
-
+        
         # rgbs
         rgbs = img_bg.resize((self.W, self.H), Image.LANCZOS)      
         rgbs = torchvision.transforms.ToTensor()(rgbs) # (3, H, W)
@@ -159,48 +149,71 @@ class ShapeNetDataset(Dataset):
         direction = get_ray_directions_opencv(self.W, self.H, fx, fy, cx, cy) # (H, W, 3)
         rays_o, rays_d = get_rays(direction, c2w) # both (H, W, 3)
 
-        return rays_o, rays_d, rgbs, imgs, image_path
+        return rays_o, rays_d, rgbs, image_path
 
     def __getitem__(self, i):
-        scene_dir = random.choice(self.scene_dirs)
-        rays_o, rays_d, rgbs, imgs, image_path = self.sample_ray(scene_dir, i)
+        try:
+            scene_dir = random.choice(self.scene_dirs)
 
-        scene_name = scene_dir.split('/')[-1]
-        pcd_path = os.path.join(scene_dir, scene_name + '.ply')
-        pcd_color = o3d.io.read_point_cloud(pcd_path)
+            if self.phase == 'train':
+                rays_o = []
+                rays_d = []
+                rgbs = []
+                for j in range(32):
+                    rays_o_, rays_d_, rgbs_, image_path = self.sample_ray(scene_dir, i)
+                    rays_o.append(rays_o_.reshape(-1, 3))
+                    rays_d.append(rays_d_.reshape(-1, 3))
+                    rgbs.append(rgbs_.reshape(-1, 3))
+                
+                rays_o = torch.cat(rays_o, dim=0)
+                rays_d = torch.cat(rays_d, dim=0)
+                rgbs = torch.cat(rgbs, dim=0)
+                
+                idx = torch.randperm(rays_o.shape[0])[:10000]
+                rays_o = rays_o[idx]
+                rays_d = rays_d[idx]
+                rgbs = rgbs[idx]
+            else:
+                rays_o, rays_d, rgbs, image_path = self.sample_ray(scene_dir, i)
 
-        points = torch.FloatTensor(np.array(pcd_color.points, dtype=np.float32)) 
-        features = torch.FloatTensor(np.array(pcd_color.colors, dtype=np.float32)) 
+            scene_name = scene_dir.split('/')[-1]
+            pcd_path = os.path.join(scene_dir, scene_name + '.ply')
+            pcd_color = o3d.io.read_point_cloud(pcd_path)
 
-        # # random index to sample points
-        # idx = torch.randperm(points.shape[0])[:10000]
-        # points = points[idx]
-        # features = features[idx]
+            points = torch.FloatTensor(np.array(pcd_color.points, dtype=np.float32)) 
+            features = torch.FloatTensor(np.array(pcd_color.colors, dtype=np.float32)) 
 
-        aa = points.min(0)[0][None]
-        bb = points.max(0)[0][None]  
+            aa = points.min(0)[0][None]
+            bb = points.max(0)[0][None]  
+            
+            # random delta_scale from 0.05 to 0.15
+            if self.phase == 'train':
+                delta_scale = random.uniform(0.05, 0.15)
+            else:
+                delta_scale = 0.1
+            aa = aa - delta_scale * (bb - aa)
+            bb = bb + delta_scale * (bb - aa)
+            aabb = torch.cat([aa, bb], dim=0)
 
-        delta_scale = 0.1
-        aa = aa - delta_scale * (bb - aa)
-        bb = bb + delta_scale * (bb - aa)
-        aabb = torch.cat([aa, bb], dim=0)
+            C = 4
+            resolution = 256
+            points = (points - aa) / (bb - aa)
+            index_points = (points * (resolution - 1)).long()
+            index_rgba = torch.cat([features, torch.ones_like(features[:, 0:1])], dim=1).transpose(0, 1) # [4, N]
 
-        C = 4
-        resolution = 256
-        points = (points - aa) / (bb - aa)
-        index_points = (points * (resolution - 1)).long()
-        index_rgba = torch.cat([features, torch.ones_like(features[:, 0:1])], dim=1).transpose(0, 1) # [4, N]
-
-        index = index_points[:, 2] + resolution * (index_points[:, 1] + resolution * index_points[:, 0])
-        voxels = torch.zeros(C, resolution**3)
-        voxels = scatter_mean(index_rgba, index, out=voxels) # B x C x reso^3
-        voxels = voxels.reshape(C, resolution, resolution, resolution) # sparce matrix (B x 512 x reso x reso)
+            index = index_points[:, 2] + resolution * (index_points[:, 1] + resolution * index_points[:, 0])
+            voxels = torch.zeros(C, resolution**3)
+            voxels = scatter_mean(index_rgba, index, out=voxels) # B x C x reso^3
+            voxels = voxels.reshape(C, resolution, resolution, resolution) # sparce matrix (B x 512 x reso x reso)
+        
+        except Exception as e:
+            print("error:", e)
+            return self.__getitem__()
 
         return {
             "rays_o": rays_o,
             "rays_d": rays_d,
             "rgbs": rgbs,
-            "imgs": imgs,
             "aabb": aabb,
             "voxels": voxels,
             "paths": scene_dir,

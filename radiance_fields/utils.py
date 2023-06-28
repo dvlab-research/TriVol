@@ -85,7 +85,8 @@ def render_image_with_occgrid(
         Fxz = torch.nn.functional.grid_sample(voxels_y, coords_xyz).squeeze(2).squeeze(2) # (B, C, N)
         Fxy = torch.nn.functional.grid_sample(voxels_z, coords_xyz).squeeze(2).squeeze(2) # (B, C, N)
 
-        out = (Fyz + Fxz + Fxy).permute(0, 2, 1)  # (B, C, N) -> (B, N, C)
+        # out = (Fyz + Fxz + Fxy).permute(0, 2, 1)  # (B, C, N) -> (B, N, C)
+        out = torch.cat([Fyz, Fxz, Fxy], dim=1).permute(0, 2, 1)  # (B, C, N) -> (B, N, 3*C)
         return out
 
     def sigma_fn(t_starts, t_ends, ray_indices):

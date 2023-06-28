@@ -5,7 +5,7 @@ This is the source code of ["TriVol: Point Cloud Rendering via Triple Volumes" (
 <img src="docs/trivol.png" width="700"/> 
 </p>
 
-### Requirements (Tested)
+### Requirements (Tested on 4 * RTX3090)
 - Linux
 - Python == 3.8
 - Pytorch == 1.13.0
@@ -19,7 +19,7 @@ You can directly install the requirements through:
 $ conda env create -f environment.yml
 ```
 
-### Or Install packages seperately
+### Or install packages seperately
 * Create Environment
     ```sh
     $ conda create --name trivol python=3.8

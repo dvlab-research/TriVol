@@ -84,8 +84,6 @@ def minkowski_collate_fn(list_data):
     rays_o_batch = torch.stack([d["rays_o"] for d in list_data])
     rays_d_batch = torch.stack([d["rays_d"] for d in list_data])
     rgb_batch = torch.stack([d["rgbs"] for d in list_data])
-    img_batch = torch.stack([d["imgs"] for d in list_data])
-    # planes_batch = torch.stack([d["planes"] for d in list_data])
     voxels_batch = torch.stack([d["voxels"] for d in list_data])
     aabb_batch = torch.stack([d["aabb"] for d in list_data])
     paths = [d["paths"] for d in list_data]
@@ -93,14 +91,9 @@ def minkowski_collate_fn(list_data):
     filenames = [d["filename"] for d in list_data]
     
     return {
-        # "coordinates": coordinates_batch,
-        # "features": features_batch,
-        # "coarse_coords": coarse_coords_batch,
-        # "coarse_weights": occupancy_batch,
         "rays_o": rays_o_batch,
         "rays_d": rays_d_batch,
         "rgbs": rgb_batch,
-        "imgs": img_batch,
         "voxels": voxels_batch,
         "aabb": aabb_batch,
         "paths":paths,

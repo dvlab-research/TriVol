@@ -130,56 +130,49 @@ class TriVolModule(LightningModule):
         max_epochs=200,
         patch_size=64,
         feat_dim=32,
-        coarse_scale=8
     ):
         super().__init__()
         for name, value in vars().items():
             if name != "self":
                 setattr(self, name, value)
         
-        self.trivol_encoder = TriVol_Encoder(in_channels=4, out_channels=args.feat_dim, num_groups=16, nf=16)
+        self.trivol_encoder = TriVol_Encoder(in_channels=4, out_channels=args.feat_dim, num_groups=16, nf=64)
         self.radiance_field = TriVolNeRFRadianceField(feat_dim=args.feat_dim)
 
         # background color
         self.render_bkgd = nn.Parameter(torch.ones(1, 3, dtype=torch.float32), requires_grad=False)
 
         # model parameters
-        grid_resolution = 128
+        self.grid_resolution = 128
         grid_nlvl = 1
         # render parameters
-        self.render_step_size = 5e-3
-        self.test_chunk_size = 4096
+        if self.dataset in ['shapenet', 'render_google'] :
+            self.render_step_size = 2e-3
+        else:
+            self.render_step_size = 1e-2
+        self.test_chunk_size = 800
         
         aabb = torch.tensor([-1.0, -1.0, -1.0, 1.0, 1.0, 1.0])
         aabb = nn.Parameter(aabb, requires_grad=False)
         self.estimator = OccGridEstimator(
-            roi_aabb=aabb, resolution=grid_resolution, levels=grid_nlvl)
+            roi_aabb=aabb, resolution=self.grid_resolution, levels=grid_nlvl)
         self.estimator.binaries = self.estimator.binaries + True
         self.measure = Measure(use_gpu=False)
+        self.validation_outputs = []
 
     def train_dataloader(self):
         if self.dataset == 'shapenet':
             self.train_dataset =  ShapeNetDataset(self.train_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale)
+                                                    scene_dir=self.scene_dir)
         elif self.dataset == 'shapenet_get3d':
             self.train_dataset =  ShapeNetGet3DDataset(self.train_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale)
+                                                    scene_dir=self.scene_dir)
         elif self.dataset == 'render_google':
             self.train_dataset =  RenderGoogleDataset(self.train_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale)
+                                                    scene_dir=self.scene_dir)
         else:
             self.train_dataset =  ScanNetDataset(self.train_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale, 
-                                                    patch_size=self.patch_size,
-                                                    img_wh=self.img_wh)
+                                                    scene_dir=self.scene_dir)
         
         return DataLoader(
             self.train_dataset,
@@ -194,26 +187,14 @@ class TriVolModule(LightningModule):
     def val_dataloader(self):
         if self.dataset == 'shapenet':
             self.val_dataset =  ShapeNetDataset(self.val_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale)
-        elif self.dataset == 'shapenet_get3d':
-            self.val_dataset =  ShapeNetGet3DDataset(self.val_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale)
+                                                    scene_dir=self.scene_dir)
         elif self.dataset == 'render_google':
             self.val_dataset =  RenderGoogleDataset(self.val_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale)
+                                                    scene_dir=self.scene_dir)
         else:
             self.val_dataset =  ScanNetDataset(self.val_mode, 
-                                                    scene_dir=self.scene_dir, 
-                                                    voxel_size=self.voxel_size, 
-                                                    coarse_scale=self.coarse_scale, 
-                                                    patch_size=self.patch_size,
-                                                    img_wh=self.img_wh)
+                                                    scene_dir=self.scene_dir)
+
         return DataLoader(
             self.val_dataset,
             batch_size=self.val_batch_size,
@@ -222,7 +203,10 @@ class TriVolModule(LightningModule):
         )
 
     def forward(self, batch, is_training, batch_idx):
-        B, H, W, _ = batch['rays_o'].shape # (B, N, 3)
+        if is_training:
+            B = batch['rays_o'].shape[0]
+        else:
+            B, H, W, _ = batch['rays_o'].shape # (B, N, 3)
         assert B == 1, 'only support batch size 1'
         
         device = batch['rays_o'].device
@@ -249,21 +233,21 @@ class TriVolModule(LightningModule):
             # rgbs_gt = rgbs_gt[:, gi, gj]
             # H = W = self.patch_size
 
-            ## random choice (patch x patch,) vector
+            ## random choice (patch * patch,) vector
             num_rays = self.patch_size ** 2
-            idx_rand = torch.randperm(H * W)[:num_rays]
+            idx_rand = torch.randperm(rays_o.shape[0])[:num_rays]
             rays_o = rays_o[idx_rand]
             rays_d = rays_d[idx_rand]
             rgbs_gt = rgbs_gt[idx_rand]
 
         aabb = batch['aabb']
-        voxels = batch['voxels']  # [B, 3, 4*32, S, S]
+        voxels = batch['voxels']  # [B, 3, S, S, S]
         
         # dense encoder
         voxels_xyz = self.trivol_encoder(voxels) # (B, feat_dim, P, S, S)
         rays = Rays(origins=rays_o, viewdirs=rays_d)
 
-        self.estimator.aabb = batch['aabb'].reshape(6)
+        self.estimator.aabbs = aabb.reshape(1, 6)
         rgbs_prd, acc, depths_prd, _ = render_image_with_occgrid(
                     self.radiance_field,
                     self.estimator,
@@ -286,16 +270,14 @@ class TriVolModule(LightningModule):
     def training_step(self, batch, batch_idx):
         rgbs_prd, rgbs_gt, depths_prd, img_path = self(batch, is_training=True, batch_idx=batch_idx)
         loss_l2 = 1.0 * ((rgbs_prd - rgbs_gt)**2).mean()
-        # loss_tv = 0.01 * (self.tv_loss(voxels_xyz[0]) + self.tv_loss(voxels_xyz[1]) + self.tv_loss(voxels_xyz[2]))
         loss = loss_l2
         
-        if batch_idx % 100 == 0:
+        if batch_idx % 100 == 0 and batch_idx > 0:
             psnr_nerf = psnr(rgbs_prd, rgbs_gt)
-            self.log("train/loss_l2", loss_l2, on_step=True, on_epoch=True, logger=True, batch_size=self.batch_size)
-            self.log("train/loss", loss, on_step=True, on_epoch=True, logger=True, batch_size=self.batch_size)
-            self.log("train/psnr_nerf", psnr_nerf, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=self.batch_size)
-            self.log("train/lr", get_learning_rate(self.optimizer), on_epoch=True, logger=True, batch_size=self.batch_size)
- 
+            self.log("train/loss_l2", loss_l2, on_step=True, on_epoch=True, logger=True, batch_size=self.batch_size, sync_dist=True)
+            self.log("train/loss", loss, on_step=True, on_epoch=True, logger=True, batch_size=self.batch_size, sync_dist=True)
+            self.log("train/psnr_nerf", psnr_nerf, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=self.batch_size, sync_dist=True)
+            self.log("train/lr", get_learning_rate(self.optimizer), on_epoch=True, logger=True, batch_size=self.batch_size, sync_dist=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -305,15 +287,12 @@ class TriVolModule(LightningModule):
         rgb_prd = rgbs_prd[0].cpu()
         rgb_gt = rgbs_gt[0].cpu()
         depths_prd = depths_prd[0].cpu()
-        depth = visualize_depth(depths_prd) # (3, H, W)
+        # depth = visualize_depth(depths_prd) # (3, H, W)
         
         img_path = img_path[0]
         name = img_path.split('/')[-3] + img_path.split('/')[-2] + '_' + img_path.split('/')[-1]
         
-        stack_nerf = torch.cat([rgb_gt, rgb_prd, depth], dim=-1) # (3, H, W)
-        img_path = os.path.join('logs', self.exp_name, 'fid', f"{self.current_epoch:04d}", "vis", f"{name}")
-        os.makedirs(os.path.dirname(img_path), exist_ok=True)
-        cv2.imwrite(img_path, (stack_nerf.permute(1,2,0)*255.0).cpu().numpy().astype(np.uint8)[..., [2, 1, 0]], [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+        stack_nerf = torch.cat([rgb_gt, rgb_prd], dim=-1) # (3, H, W)
         
         loss = ((rgbs_prd - rgbs_gt)**2).mean()
         psnr_nerf = psnr(rgbs_prd, rgbs_gt)
@@ -333,24 +312,36 @@ class TriVolModule(LightningModule):
         ssim = torch.Tensor([ssim]).float()
         lpips = torch.Tensor([lpips]).float()
 
+        img_path = os.path.join('logs', self.exp_name, 'fid', f"{self.current_epoch:04d}", "vis", f"{name}")
+        os.makedirs(os.path.dirname(img_path), exist_ok=True)
+        
+        # puttext on the image
+        stack_nerf = (stack_nerf.permute(1,2,0)*255.0).cpu().numpy().astype(np.uint8)[..., [2, 1, 0]]
+        stack_nerf = cv2.UMat(stack_nerf)
+        # cv2.putText(stack_nerf, "PSNR: %0.2f" % psnr_o, (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+        cv2.imwrite(img_path, stack_nerf, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+
         output = {"loss": loss, 
                   "psnr_nerf": psnr_nerf,
                   "ssim_nerf": ssim,
                   "lpips_nerf":lpips
                   }
-        return output
+        self.validation_outputs.append(output)
     
-    def validation_epoch_end(self, val_step_outputs):
-        loss_val = torch.stack([out['loss'] for out in val_step_outputs]).mean()
-        psnr_nerf = torch.stack([out['psnr_nerf'] for out in val_step_outputs]).mean()
-        ssim_nerf = torch.stack([out['ssim_nerf'] for out in val_step_outputs]).mean()
-        lpips_nerf = torch.stack([out['lpips_nerf'] for out in val_step_outputs]).mean()
+    def on_validation_epoch_end(self):
+        loss_val = torch.stack([out['loss'] for out in self.validation_outputs]).mean()
+        psnr_nerf = torch.stack([out['psnr_nerf'] for out in self.validation_outputs]).mean()
+        ssim_nerf = torch.stack([out['ssim_nerf'] for out in self.validation_outputs]).mean()
+        lpips_nerf = torch.stack([out['lpips_nerf'] for out in self.validation_outputs]).mean()
 
-        self.log("test/loss", loss_val, on_epoch=True, logger=True, batch_size=self.val_batch_size)
-        self.log("test/psnr_nerf", psnr_nerf, on_epoch=True, prog_bar=True, logger=True, batch_size=self.val_batch_size)
-        self.log("test/ssim_nerf", ssim_nerf, on_epoch=True, logger=True, batch_size=self.val_batch_size)
-        self.log("test/lpips_nerf", lpips_nerf, on_epoch=True, prog_bar=True, logger=True, batch_size=self.val_batch_size)
+        self.log("test/loss", loss_val, on_epoch=True, logger=True, batch_size=self.val_batch_size, sync_dist=True)
+        self.log("test/psnr_nerf", psnr_nerf, on_epoch=True, prog_bar=True, logger=True, batch_size=self.val_batch_size, sync_dist=True)
+        self.log("test/ssim_nerf", ssim_nerf, on_epoch=True, logger=True, batch_size=self.val_batch_size, sync_dist=True)
+        self.log("test/lpips_nerf", lpips_nerf, on_epoch=True, prog_bar=True, logger=True, batch_size=self.val_batch_size, sync_dist=True)
+        # torch empty cache
+        # torch.cuda.empty_cache()
 
+        self.validation_outputs.clear()
 
         paths = [os.path.join('logs', self.exp_name, 'fid', f"{self.current_epoch:04d}", 'real'),
                  os.path.join('logs', self.exp_name, 'fid', f"{self.current_epoch:04d}", 'fake')]
@@ -360,7 +351,7 @@ class TriVolModule(LightningModule):
                                                     device='cuda:0',
                                                     dims=2048,
                                                     num_workers=0)
-            self.log("test/fid", fid_value, on_epoch=True, prog_bar=True, logger=True, batch_size=self.val_batch_size)
+            self.log("test/fid", fid_value, on_epoch=True, prog_bar=True, logger=True, batch_size=self.val_batch_size, sync_dist=True)
         if self.val_mode == "test":
             img_paths = glob.glob(os.path.join('logs', self.exp_name, 'vis', '*.jpg'))
             img_paths = sorted(img_paths, key=lambda x: int(os.path.basename(x).split('.')[0]))
@@ -372,9 +363,8 @@ class TriVolModule(LightningModule):
 
     def configure_optimizers(self):
         self.optimizer = AdamW(self.parameters(), lr=self.lr)
-        scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda epoch: 0.1**(epoch/float(self.max_epochs)))
-
-        return [self.optimizer], [scheduler]
+        # scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lambda epoch: 0.1**(epoch/float(self.max_epochs)))
+        return [self.optimizer], [] # [scheduler]
 
 
 if __name__ == "__main__":
@@ -385,37 +375,22 @@ if __name__ == "__main__":
     pa.add_argument("--lr", type=float, default=5e-3, help="Learning rate")
     pa.add_argument("--batch_size", type=int, default=1, help="batch size per GPU")
     pa.add_argument("--ngpus", type=int, default=1, help="num_gpus")
-    pa.add_argument("--exp_name", type=str, default="trivol", help="num_gpus")
+    pa.add_argument("--exp_name", type=str, default="scannet_nerf", help="num_gpus")
     pa.add_argument("--train_mode", type=str, default="train")
     pa.add_argument("--val_mode", type=str, default="val", help="test or val")
     pa.add_argument("--voxel_size", type=float, default=0.01, help="the size of voxel")
     pa.add_argument("--patch_size", type=int, default=64, help="the size of sample patch")
-    pa.add_argument("--dataset", type=str, default='shapenet', help="the dataset to train")
+    pa.add_argument("--dataset", type=str, default='scannet', help="scannet or arkitscenes")
     pa.add_argument('--img_wh', nargs="+", type=int, default=[640, 512],
                         help='resolution (img_w, img_h) of the image')    
     pa.add_argument("--finetune", action='store_true', default=False, help="is finetune")
     pa.add_argument("--feat_dim", type=int, default=8, help="the dimension of each feature")
-    pa.add_argument("--coarse_scale", type=int, default=8, help="coarse scale or ball scale")
 
     args = pa.parse_args()
     num_devices = min(args.ngpus, torch.cuda.device_count())
     print(f"Testing {num_devices} GPUs.")
 
-    if args.finetune:
-        pl_module = TriVolModule.load_from_checkpoint(args.resume_path, 
-                                                scene_dir=args.scene_dir, 
-                                                dataset=args.dataset,
-                                                batch_size=args.batch_size, 
-                                                lr=args.lr, 
-                                                voxel_size=args.voxel_size, 
-                                                max_epochs=args.max_epochs,
-                                                exp_name=args.exp_name,
-                                                train_mode=args.train_mode,
-                                                val_mode=args.val_mode,
-                                                patch_size=args.patch_size,
-                                                img_wh=args.img_wh)
-    else:
-         pl_module = TriVolModule( 
+    pl_module = TriVolModule( 
                             scene_dir=args.scene_dir, 
                             dataset=args.dataset,
                             batch_size=args.batch_size, 
@@ -427,8 +402,7 @@ if __name__ == "__main__":
                             val_mode=args.val_mode,
                             patch_size=args.patch_size,
                             img_wh=args.img_wh,
-                            feat_dim=args.feat_dim,
-                            coarse_scale=args.coarse_scale)
+                            feat_dim=args.feat_dim)
 
     tb_logger = pl_loggers.TensorBoardLogger("logs/%s" % args.exp_name)
     
@@ -440,13 +414,12 @@ if __name__ == "__main__":
     )
 
     trainer = Trainer(max_epochs=args.max_epochs, 
-                      resume_from_checkpoint=None if args.finetune else args.resume_path,
-                      gpus=num_devices, 
+                      devices=num_devices,
+                      accelerator="gpu", 
                       strategy="ddp", 
+                      num_nodes=1,
                       logger=tb_logger,
                       callbacks=[checkpoint_callback],
-                      num_sanity_val_steps=1,
-                      check_val_every_n_epoch=1,
-                      log_gpu_memory=True,
+                      num_sanity_val_steps=1
                       )
-    trainer.fit(pl_module)
+    trainer.fit(pl_module, ckpt_path=args.resume_path)
