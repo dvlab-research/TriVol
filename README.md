@@ -64,6 +64,26 @@ $ conda env create -f environment.yml
     <img src="docs/samples.jpg" width="600"/> 
     </p>
 
+
+#### Training on the ScanNet dataset
+* Dataset:
+  Download and extract data from original [ScanNet-V2 preprocess](https://github.com/ScanNet/ScanNet/tree/master/SensReader/python).
+* Run: we recommand you run the code in multi-gpu mode.
+    ```sh
+    $ conda activate trivol
+    $ python train.py \
+            --scene_dir /path/to/shapenet \
+            --dataset scannet \
+            --val_mode val \
+            --max_epochs 500 \
+            --lr 0.0005 \
+            --batch_size 1 \
+            --ngpus 4 \
+            --feat_dim 16 \
+            --patch_size 32 \
+            --exp_name scannet
+    ```
+
 ## Contact
 Tao Hu - [taohu@cse.cuhk.edu.hk](taohu@cse.cuhk.edu.hk)
 
