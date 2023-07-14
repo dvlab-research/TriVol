@@ -19,9 +19,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
-# Please cite "4D Spatio-Temporal ConvNets: Minkowski Convolutional Neural
-# Networks", CVPR'19 (https://arxiv.org/abs/1904.08755) if you use any part
-# of the code.
 import os
 import argparse
 import numpy as np
@@ -36,9 +33,7 @@ import torch
 import torch.nn as nn
 from torch.optim import SGD, Adam, AdamW
 from torch.utils.data import DataLoader
-# from torch_scatter import scatter_mean
-# import MinkowskiEngine as ME
-# from models.minkunet import *
+
 import glob
 from PIL import Image
 from kornia import create_meshgrid
@@ -60,6 +55,10 @@ from radiance_fields.utils import render_image_with_occgrid, Rays
 from skimage.metrics import structural_similarity as ssim_o
 from skimage.metrics import peak_signal_noise_ratio as psnr_o
 import lpips as lpips_o
+
+import matplotlib
+matplotlib.use('agg') 
+import matplotlib.pyplot as plt # matplotlib.use('agg')必须在本句执行前运行
 
 def convert_to(img):
     def to_4d(img):
@@ -87,6 +86,8 @@ class Measure():
         return [float(f(imgA, imgB)) for f in [self.psnr, self.ssim, self.lpips]]
 
     def lpips(self, imgA, imgB, model=None):
+        imgA = cv2.resize(imgA, (224, 224))
+        imgB = cv2.resize(imgB, (224, 224))
         tA = convert_to(imgA).to(self.device)
         tB = convert_to(imgB).to(self.device)
         dist01 = self.model.forward(tA, tB).item()
@@ -108,10 +109,6 @@ class Measure():
 
 
 class TriVolModule(LightningModule):
-    r"""
-    Segmentation Module for MinkowskiEngine.
-    """
-
     def __init__(
         self,
         scene_dir,
@@ -121,7 +118,6 @@ class TriVolModule(LightningModule):
         val_mode,
         img_wh,
         lr=1e-3,
-        weight_decay=0.05,
         voxel_size=0.01,
         batch_size=4,
         val_batch_size=1,
@@ -136,8 +132,16 @@ class TriVolModule(LightningModule):
             if name != "self":
                 setattr(self, name, value)
         
-        self.trivol_encoder = TriVol_Encoder(in_channels=4, out_channels=args.feat_dim, num_groups=16, nf=64)
-        self.radiance_field = TriVolNeRFRadianceField(feat_dim=args.feat_dim)
+        self.trivol_encoder = TriVol_Encoder(in_channels=4, out_channels=args.feat_dim, num_groups=16, nf=32)
+        self.radiance_field = TriVolNeRFRadianceField(
+            feat_dim=args.feat_dim,
+            rgb_dim=3,
+            net_depth=4,  # The depth of the MLP.
+            net_width=128,  # The width of the MLP.
+            skip_layer=2,  # The layer to add skip layers to.
+            net_depth_condition=1,  # The depth of the second part of MLP.
+            net_width_condition=128,  # The width of the second part of MLP.
+            )
 
         # background color
         self.render_bkgd = nn.Parameter(torch.ones(1, 3, dtype=torch.float32), requires_grad=False)
@@ -177,7 +181,7 @@ class TriVolModule(LightningModule):
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
-            collate_fn=minkowski_collate_fn,
+            collate_fn=trivol_collate_fn,
             num_workers=self.train_num_workers,
             shuffle=True,
             pin_memory=False,
@@ -198,7 +202,7 @@ class TriVolModule(LightningModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.val_batch_size,
-            collate_fn=minkowski_collate_fn,
+            collate_fn=trivol_collate_fn,
             num_workers=self.val_num_workers
         )
 
@@ -216,23 +220,6 @@ class TriVolModule(LightningModule):
         img_path = batch['filename']
 
         if is_training:
-            ## random choice (patch, patch) matrix
-            # P = self.patch_size
-            # Gx = H // self.patch_size
-            # x = random.randint(0, H - (P - 1) * Gx - 1)
-            # i = torch.LongTensor([x + Gx*n for n in range(P)])
-            # Gy = W // self.patch_size
-            # y = random.randint(0, W - (P - 1) * Gy - 1)
-            # j = torch.LongTensor([y + Gy*n for n in range(P)])
-
-            # gi, gj = torch.meshgrid(i, j)
-            # gi = gi.reshape(-1)
-            # gj = gj.reshape(-1)
-            # rays_o = rays_o[:, gi, gj]
-            # rays_d = rays_d[:, gi, gj]
-            # rgbs_gt = rgbs_gt[:, gi, gj]
-            # H = W = self.patch_size
-
             ## random choice (patch * patch,) vector
             num_rays = self.patch_size ** 2
             idx_rand = torch.randperm(rays_o.shape[0])[:num_rays]
@@ -264,20 +251,36 @@ class TriVolModule(LightningModule):
             rgbs_prd = rgbs_prd.reshape(B, H, W, 3).permute(0, 3, 1, 2)  # (B, 3, H, W)
             rgbs_gt = rgbs_gt.reshape(B, H, W, 3).permute(0, 3, 1, 2)  # (B, 3, H, W)
             depths_prd = depths_prd.reshape(B, H, W)
-
-        return rgbs_prd, rgbs_gt, depths_prd, img_path
+            return rgbs_prd, rgbs_gt, depths_prd, img_path
+        else:
+            return rgbs_prd, rgbs_gt
 
     def training_step(self, batch, batch_idx):
-        rgbs_prd, rgbs_gt, depths_prd, img_path = self(batch, is_training=True, batch_idx=batch_idx)
-        loss_l2 = 1.0 * ((rgbs_prd - rgbs_gt)**2).mean()
+        rgbs_prd, rgbs_gt = self(batch, is_training=True, batch_idx=batch_idx)
+
+        # filter part of the noise ray on scannet
+        if self.train_dataset == "scannet":
+            loss_l2 = ((rgbs_prd - rgbs_gt)**2).mean(dim=1)
+            loss_l2 = -torch.topk(-loss_l2, int(0.98 * loss_l2.shape[0]))[0].mean()
+        else:
+            loss_l2 = ((rgbs_prd - rgbs_gt)**2).mean()
         loss = loss_l2
         
-        if batch_idx % 100 == 0 and batch_idx > 0:
+        if batch_idx % 100 == 0:
             psnr_nerf = psnr(rgbs_prd, rgbs_gt)
             self.log("train/loss_l2", loss_l2, on_step=True, on_epoch=True, logger=True, batch_size=self.batch_size, sync_dist=True)
             self.log("train/loss", loss, on_step=True, on_epoch=True, logger=True, batch_size=self.batch_size, sync_dist=True)
             self.log("train/psnr_nerf", psnr_nerf, on_step=True, on_epoch=True, prog_bar=True, logger=True, batch_size=self.batch_size, sync_dist=True)
             self.log("train/lr", get_learning_rate(self.optimizer), on_epoch=True, logger=True, batch_size=self.batch_size, sync_dist=True)
+
+            # # visualize the alpha distrubution of one ray
+            # alphas = alphas_prd[torch.argwhere(ray_indices==0)[:, 0]].detach().cpu().numpy()
+            # x = np.arange(alphas.shape[0]).astype(np.float32)
+            # y = alphas
+            # fig, ax = plt.subplots()
+            # ax.plot(x, y, '--', linewidth=2)
+            # self.logger.experiment.add_figure('train/alphas', fig, self.global_step)
+            # plt.close()
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -287,12 +290,12 @@ class TriVolModule(LightningModule):
         rgb_prd = rgbs_prd[0].cpu()
         rgb_gt = rgbs_gt[0].cpu()
         depths_prd = depths_prd[0].cpu()
-        # depth = visualize_depth(depths_prd) # (3, H, W)
+        depth = visualize_depth(depths_prd) # (3, H, W)
         
         img_path = img_path[0]
         name = img_path.split('/')[-3] + img_path.split('/')[-2] + '_' + img_path.split('/')[-1]
         
-        stack_nerf = torch.cat([rgb_gt, rgb_prd], dim=-1) # (3, H, W)
+        stack_nerf = torch.cat([rgb_gt, rgb_prd, depth], dim=-1) # (3, H, W)
         
         loss = ((rgbs_prd - rgbs_gt)**2).mean()
         psnr_nerf = psnr(rgbs_prd, rgbs_gt)
@@ -318,7 +321,7 @@ class TriVolModule(LightningModule):
         # puttext on the image
         stack_nerf = (stack_nerf.permute(1,2,0)*255.0).cpu().numpy().astype(np.uint8)[..., [2, 1, 0]]
         stack_nerf = cv2.UMat(stack_nerf)
-        # cv2.putText(stack_nerf, "PSNR: %0.2f" % psnr_o, (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(stack_nerf, "PSNR: %0.2f" % psnr_o, (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
         cv2.imwrite(img_path, stack_nerf, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
         output = {"loss": loss, 

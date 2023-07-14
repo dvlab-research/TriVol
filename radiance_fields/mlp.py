@@ -115,6 +115,7 @@ class NerfMLP(nn.Module):
     def __init__(
         self,
         input_dim: int,  # The number of input tensor channels.
+        rgb_dim: int,
         condition_dim: int,  # The number of condition tensor channels.
         net_depth: int = 8,  # The depth of the MLP.
         net_width: int = 256,  # The width of the MLP.
@@ -137,7 +138,7 @@ class NerfMLP(nn.Module):
             self.bottleneck_layer = DenseLayer(hidden_features, net_width)
             self.rgb_layer = MLP(
                 input_dim=net_width + condition_dim,
-                output_dim=3,
+                output_dim=rgb_dim,
                 net_depth=net_depth_condition,
                 net_width=net_width_condition,
                 skip_layer=None,
@@ -207,6 +208,7 @@ class TriVolNeRFRadianceField(nn.Module):
     def __init__(
         self,
         feat_dim: int = 16,
+        rgb_dim: int = 3,
         net_depth: int = 4,  # The depth of the MLP.
         net_width: int = 128,  # The width of the MLP.
         skip_layer: int = 2,  # The layer to add skip layers to.
@@ -218,6 +220,7 @@ class TriVolNeRFRadianceField(nn.Module):
         self.view_encoder = SinusoidalEncoder(3, 0, 2, True)
         self.mlp = NerfMLP(
             input_dim=self.posi_encoder.latent_dim + feat_dim*3,
+            rgb_dim=rgb_dim,
             condition_dim=self.view_encoder.latent_dim,
             net_depth=net_depth,
             net_width=net_width,
@@ -234,15 +237,32 @@ class TriVolNeRFRadianceField(nn.Module):
         return opacity
 
     def query_density(self, x, f):
-        x = self.posi_encoder(x)
+        x = self.posi_encoder(x) * 0
         x = torch.cat([x, f], dim=-1)
         sigma = self.mlp.query_density(x)
         return F.relu(sigma)
 
     def forward(self, x, f, condition=None):
-        x = self.posi_encoder(x)
+        x = self.posi_encoder(x) * 0
         x = torch.cat([x, f], dim=-1)
         if condition is not None:
-            condition = self.view_encoder(condition)
+            condition = self.view_encoder(condition) * 0
         rgb, sigma = self.mlp(x, condition=condition)
         return torch.sigmoid(rgb), F.relu(sigma)
+
+
+class TriVolNeRFRadianceField_Latent(nn.Module):
+    def __init__(
+        self,
+        feat_dim: int = 16,
+        rgb_dim: int = 4,
+    ) -> None:
+        super().__init__()
+        self.rgb_dim = rgb_dim
+        self.mlp = DenseLayer(feat_dim*3, self.rgb_dim + 1)
+
+    def forward(self, x, f, condition=None):
+        f = self.mlp(f)
+        rgb = f[..., :self.rgb_dim]
+        sigma = f[..., self.rgb_dim:]
+        return rgb, F.relu(sigma)

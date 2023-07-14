@@ -151,7 +151,6 @@ dependencies:
     - matplotlib==3.6.1
     - matplotlib-inline==0.1.6
     - mdurl==0.1.2
-    - minkowskiengine==0.5.4
     - multidict==6.0.2
     - nbformat==5.5.0
     - nest-asyncio==1.5.6

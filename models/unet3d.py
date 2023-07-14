@@ -499,7 +499,7 @@ class ResidualUNet3D(Abstract3DUNet):
     Since the model effectively becomes a residual net, in theory it allows for deeper UNet.
     """
 
-    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+    def __init__(self, in_channels, out_channels, final_sigmoid=False, f_maps=64, layer_order='gcr',
                  num_groups=8, num_levels=5, is_segmentation=False, **kwargs):
         super(ResidualUNet3D, self).__init__(in_channels=in_channels, out_channels=out_channels,
                                              final_sigmoid=final_sigmoid,
@@ -514,9 +514,9 @@ class TriVol_Encoder(nn.Module):
         super().__init__()
         self.num_groups = num_groups
         
-        self.unet3d_x = UNet3D(in_channels * num_groups, out_channels, f_maps=nf, num_levels=4, layer_order='crg')
-        self.unet3d_y = UNet3D(in_channels * num_groups, out_channels, f_maps=nf, num_levels=4, layer_order='crg')
-        self.unet3d_z = UNet3D(in_channels * num_groups, out_channels, f_maps=nf, num_levels=4, layer_order='crg')
+        self.unet3d_x = ResidualUNet3D(in_channels * num_groups, out_channels, f_maps=nf, num_levels=5, layer_order='crg')
+        self.unet3d_y = ResidualUNet3D(in_channels * num_groups, out_channels, f_maps=nf, num_levels=5, layer_order='crg')
+        self.unet3d_z = ResidualUNet3D(in_channels * num_groups, out_channels, f_maps=nf, num_levels=5, layer_order='crg')
 
     def forward(self, voxels):
         B, C, S, _, _ = voxels.shape

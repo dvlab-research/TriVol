@@ -152,14 +152,15 @@ def render_image_with_occgrid(
             rgb_sigma_fn=rgb_sigma_fn,
             render_bkgd=render_bkgd,
         )
+        # chunk_results = [rgb, opacity, depth, extras['alphas'], extras['rgbs'], ray_indices+i, len(t_starts)]
         chunk_results = [rgb, opacity, depth, len(t_starts)]
         results.append(chunk_results)
-    colors, opacities, depths, n_rendering_samples = [
+    rgbs, opacities, depths, n_rendering_samples = [
         torch.cat(r, dim=0) if isinstance(r[0], torch.Tensor) else r
         for r in zip(*results)
     ]
     return (
-        colors.view((*rays_shape[:-1], -1)),
+        rgbs.view((*rays_shape[:-1], -1)),
         opacities.view((*rays_shape[:-1], -1)),
         depths.view((*rays_shape[:-1], -1)),
         sum(n_rendering_samples),

@@ -62,25 +62,7 @@ def get_rays(directions, c2w):
     return rays_o, rays_d
 
 
-def minkowski_collate_fn(list_data):
-    r"""
-    Collation function for MinkowskiEngine.SparseTensor that creates batched
-    cooordinates given a list of dictionaries.
-    """
-    # coordinates_batch, features_batch = ME.utils.sparse_collate(
-    #     [d["coordinates"] for d in list_data],
-    #     [d["features"] for d in list_data],
-    #     dtype=torch.float32,
-    # )
-    # coordinates_batch = [d["coordinates"] for d in list_data]
-    # features_batch = [d["features"] for d in list_data]
-
-    # coarse_coords_batch, occupancy_batch = ME.utils.sparse_collate(
-    #     [d["coarse_coords"] for d in list_data],
-    #     [d["coarse_weights"] for d in list_data],
-    #     dtype=torch.float32,
-    # )
-
+def trivol_collate_fn(list_data):
     rays_o_batch = torch.stack([d["rays_o"] for d in list_data])
     rays_d_batch = torch.stack([d["rays_d"] for d in list_data])
     rgb_batch = torch.stack([d["rgbs"] for d in list_data])
