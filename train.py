@@ -321,7 +321,7 @@ class TriVolModule(LightningModule):
         # puttext on the image
         stack_nerf = (stack_nerf.permute(1,2,0)*255.0).cpu().numpy().astype(np.uint8)[..., [2, 1, 0]]
         stack_nerf = cv2.UMat(stack_nerf)
-        cv2.putText(stack_nerf, "PSNR: %0.2f" % psnr_o, (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+        # cv2.putText(stack_nerf, "PSNR: %0.2f" % psnr_o, (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
         cv2.imwrite(img_path, stack_nerf, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
         output = {"loss": loss, 
