@@ -259,7 +259,7 @@ class TriVolModule(LightningModule):
         rgbs_prd, rgbs_gt = self(batch, is_training=True, batch_idx=batch_idx)
 
         # filter part of the noise ray on scannet
-        if self.train_dataset == "scannet":
+        if self.dataset == "scannet":
             loss_l2 = ((rgbs_prd - rgbs_gt)**2).mean(dim=1)
             loss_l2 = -torch.topk(-loss_l2, int(0.98 * loss_l2.shape[0]))[0].mean()
         else:
