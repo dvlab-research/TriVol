@@ -61,7 +61,7 @@ $ conda env create -f environment.yml
 
 * example results
     <p float="left">
-    <img src="docs/samples.jpg" width="600"/> 
+    <img src="docs/samples_shapenet.jpg" width="600"/> 
     </p>
 
 
@@ -83,6 +83,10 @@ $ conda env create -f environment.yml
             --patch_size 32 \
             --exp_name scannet
     ```
+* example results
+    <p float="left">
+    <img src="docs/samples_scannet.jpg" width="600"/> 
+    </p>
 
 ## Contact
 Tao Hu - [taohu@cse.cuhk.edu.hk](taohu@cse.cuhk.edu.hk)

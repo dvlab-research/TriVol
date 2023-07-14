@@ -244,7 +244,7 @@ class TriVolModule(LightningModule):
                     render_step_size=self.render_step_size,
                     render_bkgd=self.render_bkgd,
                     test_chunk_size=self.test_chunk_size,
-                    alpha_thre=1e-4
+                    alpha_thre=0
                     )
         if not is_training:
             # # resize to image

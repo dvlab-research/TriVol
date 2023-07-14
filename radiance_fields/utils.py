@@ -136,7 +136,7 @@ def render_image_with_occgrid(
         ray_indices, t_starts, t_ends = estimator.sampling(
             chunk_rays.origins,
             chunk_rays.viewdirs,
-            sigma_fn=sigma_fn,
+            sigma_fn=None,
             near_plane=near_plane,
             far_plane=far_plane,
             render_step_size=render_step_size,
