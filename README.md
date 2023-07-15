@@ -72,7 +72,7 @@ $ conda env create -f environment.yml
     ```sh
     $ conda activate trivol
     $ python train.py \
-            --scene_dir /path/to/shapenet \
+            --scene_dir /path/to/scannet \
             --dataset scannet \
             --val_mode val \
             --max_epochs 500 \
