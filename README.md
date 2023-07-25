@@ -68,7 +68,9 @@ $ conda env create -f environment.yml
 #### Training on the ScanNet dataset
 * Dataset:
   Download and extract data from original [ScanNet-V2 preprocess](https://github.com/ScanNet/ScanNet/tree/master/SensReader/python).
+  
   Dataset structure:
+  ```
   ── scannet
     └── scene0000_00
         ├── pose
@@ -80,6 +82,7 @@ $ conda env create -f environment.yml
         └── scene0000_00_vh_clean_2.ply
         └── images.txt
     └── scene0000_01
+    ```
 * Run: we recommand you run the code in multi-gpu mode.
     ```sh
     $ conda activate trivol
