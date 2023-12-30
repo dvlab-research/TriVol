@@ -42,7 +42,7 @@ $ conda env create -f environment.yml
 ## Training
 #### Training on the ShapeNet Car dataset
 * Dataset:
-  Download our processed ShapeNet Car from [OneDrive](https://mycuhk-my.sharepoint.com/:u:/g/personal/1155136880_link_cuhk_edu_hk/EZyZvj01XWdDvBE6zObiGAEB9Gc0HrG_Go9V5CaRi4wdVA?e=WC7C8m).
+  Download our processed ShapeNet Car from [HuggingFace](https://huggingface.co/datasets/yihouxiang/TriVol).
 * Run: we recommand you run the code in multi-gpu mode.
     ```sh
     $ conda activate trivol
